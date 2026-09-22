@@ -56,12 +56,21 @@ jobs:
       - name: Push Frontend Image to Artifact Registry
         run: docker push ${{ env.IMAGE_URI }}
 
+        
       - name: Update Image Tag in GitOps Manifests Repository
         run: |
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
           git clone https://x-access-token:${{ secrets.GITOPS_REPO_PAT }}@github.com/${{ github.repository_owner }}/gitops-manifests.git
           cd gitops-manifests
-          sed -i "s|tag:.*# frontend-tag|tag: \"${{ github.sha }}\" # frontend-tag|g" helm/three-tier-app/values.yaml
-          git commit -am "chore(frontend): update image tag to ${{ github.sha }}"
-          git push origin main
+
+          # Update the exact YAML key using yq
+          yq -i '.frontend.tag = "${{ github.sha }}"' helm/three-tier-app/values.yaml
+
+          git diff
+          if git diff --quiet; then
+            echo "No changes in values.yaml"
+          else
+            git commit -am "chore(frontend): update image tag to ${{ github.sha }}"
+            git push origin main
+          fi
