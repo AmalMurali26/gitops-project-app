@@ -39,7 +39,7 @@ jobs:
 
       - name: Build Backend Docker Image
         run: |
-          IMAGE_URI="asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/backend-repo/backend:${{ github.sha }}"
+          IMAGE_URI="asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/backend-repo/backend:${{ github.run_number }}"
           docker build -t "$IMAGE_URI" ./backend
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
@@ -63,13 +63,13 @@ jobs:
           git clone https://x-access-token:${{ secrets.GITOPS_REPO_PAT }}@github.com/${{ github.repository_owner }}/gitops-manifests.git
           cd gitops-manifests
 
-          # Update the exact YAML key using yq
-          yq -i '.backend.tag = "${{ github.sha }}"' helm/three-tier-app/values.yaml
+          # Update the tag to the current build number
+          yq -i '.backend.tag = "${{ github.run_number }}"' helm/three-tier-app/values.yaml
 
           git diff
           if git diff --quiet; then
             echo "No changes in values.yaml"
           else
-            git commit -am "chore(backend): update image tag to ${{ github.sha }}"
+            git commit -am "chore(backend): update image tag to ${{ github.run_number }}"
             git push origin main
           fi

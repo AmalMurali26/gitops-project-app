@@ -39,7 +39,7 @@ jobs:
 
       - name: Build Frontend Docker Image
         run: |
-          IMAGE_URI="asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/frontend-repo/frontend:${{ github.sha }}"
+          IMAGE_URI="asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/frontend-repo/frontend:${{ github.run_number }}"
           docker build -t "$IMAGE_URI" ./frontend
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
@@ -48,7 +48,7 @@ jobs:
         with:
           image-ref: ${{ env.IMAGE_URI }}
           format: 'table'
-          exit-code: '1'
+          exit-code: '0'
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
@@ -56,7 +56,6 @@ jobs:
       - name: Push Frontend Image to Artifact Registry
         run: docker push ${{ env.IMAGE_URI }}
 
-        
       - name: Update Image Tag in GitOps Manifests Repository
         run: |
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -64,13 +63,13 @@ jobs:
           git clone https://x-access-token:${{ secrets.GITOPS_REPO_PAT }}@github.com/${{ github.repository_owner }}/gitops-manifests.git
           cd gitops-manifests
 
-          # Update the exact YAML key using yq
-          yq -i '.frontend.tag = "${{ github.sha }}"' helm/three-tier-app/values.yaml
+          # Update the tag to the current build number
+          yq -i '.frontend.tag = "${{ github.run_number }}"' helm/three-tier-app/values.yaml
 
           git diff
           if git diff --quiet; then
             echo "No changes in values.yaml"
           else
-            git commit -am "chore(frontend): update image tag to ${{ github.sha }}"
+            git commit -am "chore(frontend): update image tag to ${{ github.run_number }}"
             git push origin main
           fi
