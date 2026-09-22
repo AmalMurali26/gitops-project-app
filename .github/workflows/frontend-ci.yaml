@@ -63,7 +63,7 @@ jobs:
           git clone https://x-access-token:${{ secrets.GITOPS_REPO_PAT }}@github.com/${{ github.repository_owner }}/gitops-manifests.git
           cd gitops-manifests
 
-          # Update the tag to the current build number
+          # Updates .frontend.tag to the build number (e.g., "1", "2")
           yq -i '.frontend.tag = "${{ github.run_number }}"' helm/three-tier-app/values.yaml
 
           git diff
