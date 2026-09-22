@@ -1,0 +1,67 @@
+name: Backend DevSecOps CI
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  backend-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Application Repository
+        uses: actions/checkout@v4
+
+      - name: OWASP Dependency-Check (SCA)
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'backend'
+          path: 'backend'
+          format: 'HTML'
+          args: >
+            --failOnCVSS 8
+            --enableRetired
+
+      - name: Authenticate to Google Cloud via OIDC
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker CLI for Artifact Registry
+        run: gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+
+      - name: Build Backend Docker Image
+        run: |
+          IMAGE_URI="asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/backend-repo/backend:${{ github.sha }}"
+          docker build -t "$IMAGE_URI" ./backend
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+
+      - name: Trivy Container Vulnerability Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_URI }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Push Backend Image to Artifact Registry
+        run: docker push ${{ env.IMAGE_URI }}
+
+      - name: Update Image Tag in GitOps Manifests Repository
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git clone https://x-access-token:${{ secrets.GITOPS_REPO_PAT }}@github.com/${{ github.repository_owner }}/gitops-manifests.git
+          cd gitops-manifests
+          sed -i "s|tag:.*# backend-tag|tag: \"${{ github.sha }}\" # backend-tag|g" helm/three-tier-app/values.yaml
+          git commit -am "chore(backend): update image tag to ${{ github.sha }}"
+          git push origin main
