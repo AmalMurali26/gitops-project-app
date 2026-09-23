@@ -6,7 +6,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Database connection pool to Cloud SQL proxy
 const pool = new Pool({
   host: process.env.DB_HOST || '127.0.0.1',
   port: process.env.DB_PORT || 5432,
@@ -15,10 +14,8 @@ const pool = new Pool({
   database: process.env.DB_NAME,
 });
 
-// Health check endpoint for GKE Ingress BackendConfig
 app.get('/health', (req, res) => res.status(200).send('OK'));
 
-// Fetch all registered users
 app.get('/api/users', async (req, res) => {
   try {
     const result = await pool.query('SELECT id, name, email, created_at FROM users ORDER BY id DESC');
@@ -29,7 +26,6 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-// Submit a new user
 app.post('/api/users', async (req, res) => {
   const { name, email } = req.body;
   if (!name || !email) {
