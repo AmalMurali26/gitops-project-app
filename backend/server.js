@@ -14,6 +14,10 @@ const pool = new Pool({
   database: process.env.DB_NAME,
 });
 
+app.get('/api/message', (req, res) => {
+  res.status(200).json({ message: "Backend is healthy and connected to Cloud SQL via Workload Identity!" });
+});
+
 app.get('/health', (req, res) => res.status(200).send('OK'));
 
 app.get('/api/users', async (req, res) => {
