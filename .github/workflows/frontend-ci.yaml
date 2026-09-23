@@ -64,7 +64,7 @@ jobs:
           cd gitops-manifests
 
           # Updates .frontend.tag to the build number (e.g., "1", "2")
-          yq -i '.frontend.tag = "${{ github.run_number }}"' helm/three-tier-app/values.yaml
+          yq -i '.image.tag = ${{ github.run_number }}' helm/frontend/values.yaml
 
           git diff
           if git diff --quiet; then
