@@ -43,7 +43,7 @@ jobs:
           docker build -t "$IMAGE_URI" ./frontend
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
-      # ── 1. Trivy Scan Output to JSON & Table ──
+      # ─── 1. Trivy Container Vulnerability Scan (Outputs JSON) ───
       - name: Trivy Container Vulnerability Scan
         uses: aquasecurity/trivy-action@master
         with:
@@ -54,16 +54,23 @@ jobs:
           ignore-unfixed: true
           vuln-type: 'os,library'
 
-      # ── 2. Security Quality Gate & Checklist Evaluation ──
+      # ─── 2. Print Detailed Vulnerability Breakdown in Runner Logs ───
+      - name: Print Vulnerabilities
+        run: |
+          echo "=================== DETECTED VULNERABILITIES ==================="
+          jq '.Results[]?.Vulnerabilities[]? | {PkgName, InstalledVersion, Severity, Title}' trivy-results.json || echo "No vulnerabilities found or invalid JSON"
+          echo "================================================================"
+
+      # ─── 3. Checklist Evaluation & Security Gate ───
       - name: Vulnerability Threshold Checklist & Gate
         run: |
           echo "### 🛡️ Security Vulnerability Gate Checklist" >> $GITHUB_STEP_SUMMARY
 
-          # Extract counts using jq
-          CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-results.json || echo 0)
-          HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-results.json || echo 0)
-          MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-results.json || echo 0)
-          LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-results.json || echo 0)
+          # Count vulnerabilities by severity
+          CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-results.json 2>/dev/null || echo 0)
+          HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-results.json 2>/dev/null || echo 0)
+          MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-results.json 2>/dev/null || echo 0)
+          LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-results.json 2>/dev/null || echo 0)
 
           TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
           SEVERE=$((CRITICAL + HIGH))
@@ -84,22 +91,24 @@ jobs:
           echo "| **CRITICAL + HIGH RATIO** | **${RATIO}%** |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          # Checklist evaluation
-          if [ "$TOTAL" -gt 0 ] && [ "$RATIO" -gt 50 ]; then
+          # Rejection condition: CRITICAL > 0, OR (TOTAL >= 5 and RATIO > 50%)
+          if [ "$CRITICAL" -gt 0 ] || { [ "$TOTAL" -ge 5 ] && [ "$RATIO" -gt 50 ]; }; then
             echo "❌ **CHECKLIST FAILED: REJECTED**" >> $GITHUB_STEP_SUMMARY
-            echo "- [x] Critical + High ratio (${RATIO}%) exceeds allowed threshold (<= 50%)" >> $GITHUB_STEP_SUMMARY
+            echo "- [ ] Critical + High ratio (${RATIO}%) or Critical count ($CRITICAL) exceeds allowed threshold" >> $GITHUB_STEP_SUMMARY
             echo "- [ ] Approved for push and deployment" >> $GITHUB_STEP_SUMMARY
-            echo "::error::Vulnerability threshold exceeded: Critical+High ratio is ${RATIO}% (limit: 50%). Rejecting build."
+            echo "::error::Vulnerability threshold exceeded: Critical=$CRITICAL, High=$HIGH, Ratio=${RATIO}% (Total: $TOTAL). Rejecting build."
             exit 1
           else
             echo "✅ **CHECKLIST PASSED: APPROVED**" >> $GITHUB_STEP_SUMMARY
-            echo "- [x] Critical + High ratio (${RATIO}%) is within acceptable boundary (<= 50%)" >> $GITHUB_STEP_SUMMARY
+            echo "- [x] Critical + High ratio (${RATIO}%) is within acceptable boundary" >> $GITHUB_STEP_SUMMARY
             echo "- [x] Approved for push and deployment" >> $GITHUB_STEP_SUMMARY
           fi
 
+      # ─── 4. Push Image (Only executes if gate passes) ───
       - name: Push Frontend Image to Artifact Registry
         run: docker push ${{ env.IMAGE_URI }}
 
+      # ─── 5. Update GitOps Manifests Repository ───
       - name: Update Image Tag in GitOps Manifests Repository
         run: |
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
