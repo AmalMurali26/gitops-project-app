@@ -43,15 +43,59 @@ jobs:
           docker build -t "$IMAGE_URI" ./frontend
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
+      # ── 1. Trivy Scan Output to JSON & Table ──
       - name: Trivy Container Vulnerability Scan
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.IMAGE_URI }}
-          format: 'table'
+          format: 'json'
+          output: 'trivy-results.json'
           exit-code: '0'
           ignore-unfixed: true
           vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
+
+      # ── 2. Security Quality Gate & Checklist Evaluation ──
+      - name: Vulnerability Threshold Checklist & Gate
+        run: |
+          echo "### 🛡️ Security Vulnerability Gate Checklist" >> $GITHUB_STEP_SUMMARY
+
+          # Extract counts using jq
+          CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-results.json || echo 0)
+          HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-results.json || echo 0)
+          MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-results.json || echo 0)
+          LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-results.json || echo 0)
+
+          TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
+          SEVERE=$((CRITICAL + HIGH))
+
+          if [ "$TOTAL" -gt 0 ]; then
+            RATIO=$(( (SEVERE * 100) / TOTAL ))
+          else
+            RATIO=0
+          fi
+
+          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔴 CRITICAL | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟠 HIGH | $HIGH |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟡 MEDIUM | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟢 LOW | $LOW |" >> $GITHUB_STEP_SUMMARY
+          echo "| **TOTAL** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+          echo "| **CRITICAL + HIGH RATIO** | **${RATIO}%** |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Checklist evaluation
+          if [ "$TOTAL" -gt 0 ] && [ "$RATIO" -gt 50 ]; then
+            echo "❌ **CHECKLIST FAILED: REJECTED**" >> $GITHUB_STEP_SUMMARY
+            echo "- [x] Critical + High ratio (${RATIO}%) exceeds allowed threshold (<= 50%)" >> $GITHUB_STEP_SUMMARY
+            echo "- [ ] Approved for push and deployment" >> $GITHUB_STEP_SUMMARY
+            echo "::error::Vulnerability threshold exceeded: Critical+High ratio is ${RATIO}% (limit: 50%). Rejecting build."
+            exit 1
+          else
+            echo "✅ **CHECKLIST PASSED: APPROVED**" >> $GITHUB_STEP_SUMMARY
+            echo "- [x] Critical + High ratio (${RATIO}%) is within acceptable boundary (<= 50%)" >> $GITHUB_STEP_SUMMARY
+            echo "- [x] Approved for push and deployment" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Push Frontend Image to Artifact Registry
         run: docker push ${{ env.IMAGE_URI }}
@@ -63,7 +107,6 @@ jobs:
           git clone https://x-access-token:${{ secrets.GITOPS_REPO_PAT }}@github.com/${{ github.repository_owner }}/gitops-manifests.git
           cd gitops-manifests
 
-          # Updates .frontend.tag to the build number (e.g., "1", "2")
           yq -i '.image.tag = ${{ github.run_number }}' helm/frontend/values.yaml
 
           git diff
