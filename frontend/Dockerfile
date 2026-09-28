@@ -1,5 +1,6 @@
 # Multi-stage build for minimal attack surface
-FROM node:18-alpine AS builder
+# Example: upgrade to latest alpine or slim base
+FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
