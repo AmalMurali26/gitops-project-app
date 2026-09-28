@@ -55,7 +55,7 @@ function App() {
 
   return (
     <div style={{ maxWidth: '650px', margin: '40px auto', fontFamily: 'Arial, sans-serif', padding: '0 20px' }}>
-      <h2 style={{ textAlign: 'center', color: '#1a202c' }}>User Directory (3-Tier GKE & Cloud SQL)</h2>
+      <h2 style={{ textAlign: 'center', color: '#1a202c' }}>User Directory </h2>
       
       <form onSubmit={handleSubmit} style={{ background: '#f7fafc', padding: '24px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '30px' }}>
         <div style={{ marginBottom: '15px' }}>
